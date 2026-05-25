@@ -2,631 +2,972 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Databricks Architecture — Lakeflow → DLT → Jobs</title>
+<title>Databricks Architecture — Lakeflow → Pipelines → Jobs</title>
+
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #0e1117;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    color: #e2e8f0;
-    padding: 24px;
-    min-width: 1100px;
-  }
-  h1 { text-align:center; font-size:20px; color:#ff6b35; letter-spacing:2px; text-transform:uppercase; margin-bottom:4px; }
-  .subtitle { text-align:center; font-size:11px; color:#64748b; margin-bottom:28px; letter-spacing:1px; }
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
 
-  .layer { border:1.5px solid; border-radius:12px; padding:16px 20px; position:relative; margin-bottom:0; }
-  .layer-label { position:absolute; top:-11px; left:18px; font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:0 8px; background:#0e1117; }
+body{
+  background:#0e1117;
+  font-family:'Segoe UI',system-ui,sans-serif;
+  color:#e2e8f0;
+  padding:24px;
+  min-width:1200px;
+}
 
-  .layer-src   { border-color:#475569; } .layer-src .layer-label   { color:#94a3b8; }
-  .layer-lf    { border-color:#3b82f6; } .layer-lf .layer-label    { color:#3b82f6; }
-  .layer-ing   { border-color:#8b5cf6; } .layer-ing .layer-label   { color:#8b5cf6; }
-  .layer-dlt   { border-color:#06b6d4; } .layer-dlt .layer-label   { color:#06b6d4; }
-  .layer-clus  { border-color:#f59e0b; } .layer-clus .layer-label  { color:#f59e0b; }
-  .layer-jobs  { border-color:#10b981; } .layer-jobs .layer-label  { color:#10b981; }
-  .layer-store { border-color:#475569; } .layer-store .layer-label { color:#94a3b8; }
+h1{
+  text-align:center;
+  font-size:20px;
+  color:#ff6b35;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  margin-bottom:4px;
+}
 
-  .arrow-row { display:flex; justify-content:center; align-items:center; height:36px; gap:8px; }
-  .arrow-line { width:2px; height:20px; background:#334155; }
-  .arrow-head { width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #334155; }
-  .arrow-down { display:flex; flex-direction:column; align-items:center; }
-  .arrow-label { font-size:9px; color:#64748b; letter-spacing:.5px; }
+.subtitle{
+  text-align:center;
+  font-size:11px;
+  color:#64748b;
+  margin-bottom:28px;
+  letter-spacing:1px;
+}
 
-  .cards-row { display:flex; gap:12px; flex-wrap:wrap; }
-  .grid2  { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .grid3  { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-  .grid4  { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:8px; }
+/* layers */
 
-  .card { border-radius:8px; padding:10px 14px; font-size:11px; }
-  .card-title { font-size:11px; font-weight:700; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
-  .card ul { list-style:none; padding:0; }
-  .card ul li { padding:2px 0; color:#94a3b8; font-size:10px; }
-  .card ul li::before { content:"▸ "; color:#475569; }
+.layer{
+  border:1.5px solid;
+  border-radius:12px;
+  padding:16px 20px;
+  position:relative;
+  margin-bottom:0;
+}
 
-  .c-blue   { background:#1e3a5f; border:1px solid #3b82f6; }
-  .c-purple { background:#2d1b69; border:1px solid #8b5cf6; }
-  .c-cyan   { background:#0c3a4a; border:1px solid #06b6d4; }
-  .c-amber  { background:#3a2500; border:1px solid #f59e0b; }
-  .c-green  { background:#0a2e20; border:1px solid #10b981; }
-  .c-slate  { background:#1a2332; border:1px solid #475569; }
+.layer-label{
+  position:absolute;
+  top:-11px;
+  left:18px;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  padding:0 8px;
+  background:#0e1117;
+}
 
-  .badge { display:inline-block; font-size:9px; padding:1px 6px; border-radius:10px; font-weight:600; margin:2px 2px 4px 0; }
-  .b-blue   { background:#1d4ed8; color:#bfdbfe; }
-  .b-purple { background:#6d28d9; color:#ddd6fe; }
-  .b-cyan   { background:#0891b2; color:#cffafe; }
-  .b-amber  { background:#d97706; color:#fef3c7; }
-  .b-green  { background:#059669; color:#d1fae5; }
-  .b-red    { background:#b91c1c; color:#fee2e2; }
+/* layer colors */
 
-  .sec-title { font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:8px; letter-spacing:.5px; }
-  .divider { border:none; border-top:1px dashed #1e293b; margin:12px 0; }
-  .note { font-size:9px; color:#475569; margin-top:6px; font-style:italic; }
+.layer-src{ border-color:#475569; }
+.layer-src .layer-label{ color:#94a3b8; }
 
-  /* pipeline stages */
-  .stages { display:flex; gap:0; align-items:stretch; margin-top:10px; }
-  .stg { flex:1; padding:10px 12px; font-size:10px; text-align:center; }
-  .stg:first-child { border-radius:8px 0 0 8px; }
-  .stg:last-child  { border-radius:0 8px 8px 0; }
-  .stg-t { font-weight:700; font-size:11px; margin-bottom:4px; }
-  .s-bz { background:#3a2000; border:1px solid #92400e; border-right:none; }
-  .s-sv { background:#1a2332; border:1px solid #475569; border-right:none; }
-  .s-gd { background:#1a2500; border:1px solid #84cc16; }
-  .s-bz .stg-t { color:#fbbf24; }
-  .s-sv .stg-t { color:#94a3b8; }
-  .s-gd .stg-t { color:#a3e635; }
-  .stg-sep { display:flex; align-items:center; padding:0 4px; color:#334155; font-size:18px; font-weight:bold; }
-  .stg ul { list-style:none; padding:0; text-align:left; margin-top:6px; }
-  .stg ul li { font-size:9px; color:#64748b; padding:1px 0; }
-  .stg ul li::before { content:"▸ "; }
+.layer-lf{ border-color:#3b82f6; }
+.layer-lf .layer-label{ color:#3b82f6; }
 
-  /* tasks row */
-  .tasks-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; align-items:center; }
-  .task { padding:6px 10px; border-radius:6px; font-size:10px; font-weight:600; background:#0a2e20; border:1px solid #10b981; color:#6ee7b7; }
-  .task-arr { color:#334155; font-size:14px; }
+.layer-ing{ border-color:#8b5cf6; }
+.layer-ing .layer-label{ color:#8b5cf6; }
+
+.layer-pipe{ border-color:#06b6d4; }
+.layer-pipe .layer-label{ color:#06b6d4; }
+
+.layer-clus{ border-color:#f59e0b; }
+.layer-clus .layer-label{ color:#f59e0b; }
+
+.layer-jobs{ border-color:#10b981; }
+.layer-jobs .layer-label{ color:#10b981; }
+
+.layer-store{ border-color:#475569; }
+.layer-store .layer-label{ color:#94a3b8; }
+
+.arrow-row{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:36px;
+  gap:8px;
+}
+
+.arrow-line{
+  width:2px;
+  height:20px;
+  background:#334155;
+}
+
+.arrow-head{
+  width:0;
+  height:0;
+  border-left:6px solid transparent;
+  border-right:6px solid transparent;
+  border-top:8px solid #334155;
+}
+
+.arrow-down{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+.arrow-label{
+  font-size:9px;
+  color:#64748b;
+  letter-spacing:.5px;
+}
+
+.cards-row{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.grid2{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+
+.grid3{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:12px;
+}
+
+.grid4{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr 1fr;
+  gap:12px;
+}
+
+.card{
+  border-radius:8px;
+  padding:12px 14px;
+  font-size:11px;
+}
+
+.card-title{
+  font-size:11px;
+  font-weight:700;
+  margin-bottom:8px;
+}
+
+.card ul{
+  list-style:none;
+}
+
+.card ul li{
+  padding:2px 0;
+  color:#94a3b8;
+  font-size:10px;
+}
+
+.card ul li::before{
+  content:"▸ ";
+  color:#475569;
+}
+
+.c-blue{
+  background:#1e3a5f;
+  border:1px solid #3b82f6;
+}
+
+.c-purple{
+  background:#2d1b69;
+  border:1px solid #8b5cf6;
+}
+
+.c-cyan{
+  background:#0c3a4a;
+  border:1px solid #06b6d4;
+}
+
+.c-amber{
+  background:#3a2500;
+  border:1px solid #f59e0b;
+}
+
+.c-green{
+  background:#0a2e20;
+  border:1px solid #10b981;
+}
+
+.c-slate{
+  background:#1a2332;
+  border:1px solid #475569;
+}
+
+.badge{
+  display:inline-block;
+  font-size:9px;
+  padding:1px 6px;
+  border-radius:10px;
+  font-weight:600;
+  margin:2px 2px 4px 0;
+}
+
+.b-blue{
+  background:#1d4ed8;
+  color:#bfdbfe;
+}
+
+.b-purple{
+  background:#6d28d9;
+  color:#ddd6fe;
+}
+
+.b-cyan{
+  background:#0891b2;
+  color:#cffafe;
+}
+
+.b-amber{
+  background:#d97706;
+  color:#fef3c7;
+}
+
+.b-green{
+  background:#059669;
+  color:#d1fae5;
+}
+
+.b-red{
+  background:#b91c1c;
+  color:#fee2e2;
+}
+
+.sec-title{
+  font-size:11px;
+  font-weight:700;
+  color:#94a3b8;
+  margin-bottom:8px;
+  letter-spacing:.5px;
+}
+
+.note{
+  font-size:9px;
+  color:#64748b;
+  margin-top:8px;
+  font-style:italic;
+}
+
+.divider{
+  border:none;
+  border-top:1px dashed #1e293b;
+  margin:14px 0;
+}
+
+.stages{
+  display:flex;
+  align-items:stretch;
+  margin-top:10px;
+}
+
+.stg{
+  flex:1;
+  padding:10px 12px;
+  font-size:10px;
+}
+
+.stg-t{
+  font-weight:700;
+  font-size:11px;
+  margin-bottom:4px;
+}
+
+.s-bz{
+  background:#3a2000;
+  border:1px solid #92400e;
+}
+
+.s-sv{
+  background:#1a2332;
+  border:1px solid #475569;
+}
+
+.s-gd{
+  background:#1a2500;
+  border:1px solid #84cc16;
+}
+
+.stg ul{
+  list-style:none;
+  margin-top:6px;
+}
+
+.stg ul li{
+  font-size:9px;
+  color:#94a3b8;
+  padding:1px 0;
+}
+
+.stg ul li::before{
+  content:"▸ ";
+}
+
+.footer{
+  text-align:center;
+  margin-top:20px;
+  font-size:10px;
+  color:#334155;
+  letter-spacing:1px;
+}
 </style>
 </head>
+
 <body>
 
-<h1>🔶 Databricks End-to-End Low-Level Architecture</h1>
-<div class="subtitle">Lakeflow Connect → Ingestion Methods → Spark Declarative Pipelines (DLT) → Clusters → Jobs → Lakehouse</div>
+<h1>🔶 Databricks End-to-End Architecture</h1>
 
-<!-- ── SOURCES ── -->
+<div class="subtitle">
+Cloud Sources → Lakeflow Connect → Ingestion →
+Lakeflow Declarative Pipelines →
+Databricks Compute →
+Delta Lake on Cloud Storage →
+Unity Catalog Governance →
+SQL / BI / AI Consumption
+</div>
+
+<!-- SOURCES -->
+
 <div class="layer layer-src">
-  <span class="layer-label">📡 External Sources</span>
-  <div class="cards-row">
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">🗄️ Databases</div>
-      <ul><li>PostgreSQL / MySQL</li><li>Oracle / SQL Server</li><li>Salesforce / SAP</li><li>ServiceNow</li></ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">📂 Object Storage</div>
-      <ul><li>AWS S3</li><li>Azure ADLS Gen2</li><li>Google GCS</li><li>SFTP / HTTP endpoints</li></ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">📨 Streaming</div>
-      <ul><li>Apache Kafka</li><li>Confluent Cloud</li><li>Azure Event Hubs</li><li>Amazon Kinesis</li></ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">🌐 SaaS Apps</div>
-      <ul><li>Google Analytics</li><li>HubSpot / Marketo</li><li>Workday / NetSuite</li><li>REST APIs</li></ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">📊 Data Warehouses</div>
-      <ul><li>Snowflake</li><li>Redshift / BigQuery</li><li>Teradata</li><li>Synapse Analytics</li></ul>
-    </div>
-  </div>
+
+<span class="layer-label">📡 External Sources</span>
+
+<div class="cards-row">
+
+<div class="card c-slate" style="flex:1">
+<div class="card-title">🗄️ Databases</div>
+<ul>
+<li>PostgreSQL / MySQL</li>
+<li>Oracle / SQL Server</li>
+<li>SAP / Salesforce</li>
+<li>ServiceNow</li>
+</ul>
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">CDC / Batch / Streaming connections</span></div>
+<div class="card c-slate" style="flex:1">
+<div class="card-title">📨 Streaming</div>
+<ul>
+<li>Apache Kafka</li>
+<li>Confluent Cloud</li>
+<li>Azure Event Hubs</li>
+<li>Amazon Kinesis</li>
+</ul>
+</div>
 
-<!-- ── LAKEFLOW CONNECT ── -->
+<div class="card c-slate" style="flex:1">
+<div class="card-title">📂 Object Storage</div>
+<ul>
+<li>AWS S3</li>
+<li>Azure ADLS Gen2</li>
+<li>Google Cloud Storage</li>
+<li>SFTP / APIs</li>
+</ul>
+</div>
+
+<div class="card c-slate" style="flex:1">
+<div class="card-title">📊 Warehouses</div>
+<ul>
+<li>Snowflake</li>
+<li>BigQuery</li>
+<li>Redshift</li>
+<li>Synapse</li>
+</ul>
+</div>
+
+</div>
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Batch / CDC / Streaming ingestion</span>
+</div>
+
+<!-- LAKEFLOW CONNECT -->
+
 <div class="layer layer-lf">
-  <span class="layer-label">🔗 Lakeflow Connect — Managed Ingestion Orchestration</span>
-  <div class="grid2">
-    <div>
-      <div class="sec-title">Connector Types</div>
-      <div class="cards-row">
-        <div class="card c-blue" style="flex:1">
-          <div class="card-title">⚡ Streaming Connectors</div>
-          <ul><li>CDC via Debezium (log-based)</li><li>Kafka → Delta sink</li><li>Event Hub ingestion</li><li>Micro-batch interval mode</li><li>Exactly-once delivery</li></ul>
-        </div>
-        <div class="card c-blue" style="flex:1">
-          <div class="card-title">📦 Batch Connectors</div>
-          <ul><li>Full / incremental load modes</li><li>Snapshot isolation reads</li><li>Watermark-based tracking</li><li>Schema evolution handling</li><li>Parallel partition reads</li></ul>
-        </div>
-      </div>
-    </div>
-    <div>
-      <div class="sec-title">Platform Features</div>
-      <div class="cards-row">
-        <div class="card c-blue" style="flex:1">
-          <div class="card-title">⚙️ Pipeline Management</div>
-          <ul><li>Auto schema inference</li><li>Connector catalog UI</li><li>Data lineage tracking</li><li>Unity Catalog integration</li><li>Observability dashboard</li></ul>
-        </div>
-        <div class="card c-blue" style="flex:1">
-          <div class="card-title">🔐 Security & Governance</div>
-          <ul><li>Databricks secrets store</li><li>Network policy enforcement</li><li>Audit log to system tables</li><li>Data encryption at rest</li><li>IP access lists</li></ul>
-        </div>
-      </div>
-    </div>
-  </div>
-  <p class="note">↳ Lakeflow Connect manages source authentication, polling schedules, schema mapping, and writes raw records to Bronze Delta tables in the Lakehouse</p>
+
+<span class="layer-label">
+🔗 Lakeflow Connect — Managed Ingestion
+</span>
+
+<div class="grid2">
+
+<div class="card c-blue">
+
+<div class="card-title">⚙️ Connector Management</div>
+
+<ul>
+<li>Managed source connectors</li>
+<li>Authentication handling</li>
+<li>Polling & scheduling</li>
+<li>Schema evolution support</li>
+<li>Observability dashboards</li>
+<li>Unity Catalog integration</li>
+</ul>
+
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">Raw writes → Delta / Parquet on cloud storage</span></div>
+<div class="card c-blue">
 
-<!-- ── INGESTION METHODS ── -->
+<div class="card-title">🔐 Security & Governance</div>
+
+<ul>
+<li>Secrets management</li>
+<li>Audit logging</li>
+<li>Encryption at rest</li>
+<li>Network policies</li>
+<li>Lineage tracking</li>
+<li>Access control integration</li>
+</ul>
+
+</div>
+
+</div>
+
+<p class="note">
+↳ Lakeflow Connect orchestrates managed ingestion from external systems into cloud object storage and Delta tables within the Lakehouse.
+</p>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Files & events land in cloud object storage</span>
+</div>
+
+<!-- INGESTION -->
+
 <div class="layer layer-ing">
-  <span class="layer-label">📥 Ingestion Methods — How Data Lands in the Lakehouse</span>
-  <div class="grid3">
 
-    <div class="card c-purple">
-      <div class="card-title">🔄 Auto Loader</div>
-      <span class="badge b-purple">Streaming</span><span class="badge b-blue">Incremental</span>
-      <ul>
-        <li><code>cloudFiles()</code> format source</li>
-        <li>File notification mode (SQS / Event Grid)</li>
-        <li>Directory listing mode (fallback)</li>
-        <li>Auto schema inference & evolution</li>
-        <li>Checkpoint-based exactly-once semantics</li>
-        <li>Scales to billions of files per directory</li>
-        <li>Supports JSON, CSV, Parquet, Avro, ORC, text</li>
-        <li>Writes via <code>writeStream</code> to Delta table</li>
-        <li>rescuedDataColumn for schema mismatches</li>
-      </ul>
-      <p class="note">✅ Best for: S3/ADLS/GCS → Bronze continuous ingestion</p>
-    </div>
+<span class="layer-label">
+📥 Ingestion Methods
+</span>
 
-    <div class="card c-purple">
-      <div class="card-title">📋 COPY INTO</div>
-      <span class="badge b-purple">Idempotent</span><span class="badge b-amber">Batch SQL</span>
-      <ul>
-        <li>SQL command: <code>COPY INTO table FROM path</code></li>
-        <li>Tracks ingested files in Delta transaction log</li>
-        <li>Skips already-loaded files automatically</li>
-        <li>FORMAT options: CSV, JSON, Parquet, Avro, ORC</li>
-        <li>PATTERN for glob-based file filtering</li>
-        <li>COPY_OPTIONS (header, delimiter, etc.)</li>
-        <li>No checkpoint management required</li>
-        <li>Good for ≤ millions of files per dir</li>
-        <li>Can run on SQL Warehouses (serverless)</li>
-      </ul>
-      <p class="note">✅ Best for: periodic batch / ad-hoc file loads</p>
-    </div>
+<div class="grid3">
 
-    <div class="card c-purple">
-      <div class="card-title">🏗️ CTAS / INSERT / MERGE</div>
-      <span class="badge b-red">Full Refresh</span><span class="badge b-cyan">SQL DDL</span>
-      <ul>
-        <li><code>CREATE TABLE AS SELECT</code> (CTAS)</li>
-        <li><code>CREATE OR REPLACE TABLE AS SELECT</code></li>
-        <li><code>INSERT INTO</code> — append rows</li>
-        <li><code>INSERT OVERWRITE</code> — replace partition</li>
-        <li><code>MERGE INTO</code> — upsert / SCD Type 1</li>
-        <li>Dynamic partition overwrite mode</li>
-        <li>Used in DLT SQL pipelines declaratively</li>
-        <li>SELECT from external tables / views</li>
-        <li>Supports column mapping & type evolution</li>
-      </ul>
-      <p class="note">✅ Best for: transformations, full reloads, upserts</p>
-    </div>
+<div class="card c-purple">
 
-    <div class="card c-purple">
-      <div class="card-title">🌊 Structured Streaming</div>
-      <span class="badge b-cyan">Micro-batch</span><span class="badge b-blue">Continuous</span>
-      <ul>
-        <li><code>spark.readStream</code> / <code>writeStream</code> API</li>
-        <li><code>Trigger.ProcessingTime("5 minutes")</code></li>
-        <li><code>Trigger.AvailableNow()</code> — batch-like run</li>
-        <li><code>Trigger.Continuous("1 second")</code></li>
-        <li>Sources: Kafka, Kinesis, EventHub, Delta</li>
-        <li>Watermarking for late-arriving data</li>
-        <li>Stateful aggregations (window functions)</li>
-        <li><code>foreachBatch</code> for Delta merge/upsert</li>
-        <li>Checkpointing to DBFS/cloud storage</li>
-      </ul>
-      <p class="note">✅ Best for: real-time event stream processing</p>
-    </div>
+<div class="card-title">🔄 Auto Loader</div>
 
-    <div class="card c-purple">
-      <div class="card-title">🔌 JDBC / Lakehouse Federation</div>
-      <span class="badge b-amber">Batch</span><span class="badge b-purple">Federated</span>
-      <ul>
-        <li><code>spark.read.jdbc(url, table, props)</code></li>
-        <li>Partition column for parallel reads</li>
-        <li><code>numPartitions</code> for parallelism</li>
-        <li>predicates push-down to source DB</li>
-        <li>External tables on S3/ADLS (Hive)</li>
-        <li>Unity Catalog foreign tables</li>
-        <li>Lakehouse Federation (query without copy)</li>
-        <li>Connections: PostgreSQL, MySQL, Redshift, etc.</li>
-      </ul>
-      <p class="note">✅ Best for: DB extracts & federated querying</p>
-    </div>
+<span class="badge b-purple">Streaming</span>
+<span class="badge b-blue">Incremental</span>
 
-    <div class="card c-purple">
-      <div class="card-title">📡 DLT Internal Sources</div>
-      <span class="badge b-cyan">Declarative</span><span class="badge b-green">CDC</span>
-      <ul>
-        <li><code>dlt.read("table_name")</code> — batch read</li>
-        <li><code>dlt.read_stream("table")</code> — streaming</li>
-        <li><code>dlt.apply_changes()</code> — CDC upsert</li>
-        <li>SQL: <code>APPLY CHANGES INTO target FROM src</code></li>
-        <li>KEYS clause for primary key definition</li>
-        <li>SEQUENCE BY for ordering changes</li>
-        <li>SCD Type 1 (default) & SCD Type 2 support</li>
-        <li>Auto dependency graph resolution</li>
-        <li>Backfill & full refresh on demand</li>
-      </ul>
-      <p class="note">✅ Best for: pipeline-internal CDC & SCD handling</p>
-    </div>
+<ul>
+<li>cloudFiles() ingestion</li>
+<li>Schema inference & evolution</li>
+<li>Checkpoint-based processing</li>
+<li>File notification mode</li>
+<li>Exactly-once semantics</li>
+<li>rescuedDataColumn support</li>
+</ul>
 
-  </div>
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">Writes to Delta Lake (Bronze layer in Unity Catalog)</span></div>
+<div class="card c-purple">
 
-<!-- ── DLT PIPELINES ── -->
-<div class="layer layer-dlt">
-  <span class="layer-label">⚡ Spark Declarative Pipelines — Delta Live Tables (DLT)</span>
+<div class="card-title">📋 COPY INTO</div>
 
-  <!-- medallion stages -->
-  <div class="stages">
-    <div class="stg s-bz">
-      <div class="stg-t">🥉 Bronze Layer</div>
-      <div style="color:#94a3b8;font-size:9px;margin-bottom:4px">Raw Ingestion</div>
-      <ul>
-        <li>@dlt.table (streaming source)</li>
-        <li>cloudFiles / Kafka readStream</li>
-        <li>No transformations applied</li>
-        <li>Append-only, schema raw</li>
-        <li>_rescued_data column</li>
-        <li>Immutable audit trail</li>
-      </ul>
-    </div>
-    <div class="stg-sep">→</div>
-    <div class="stg s-sv">
-      <div class="stg-t">🥈 Silver Layer</div>
-      <div style="color:#94a3b8;font-size:9px;margin-bottom:4px">Cleaned / Conformed</div>
-      <ul>
-        <li>@dlt.table (batch or stream)</li>
-        <li>MERGE / apply_changes() CDC</li>
-        <li>Type casting & date parsing</li>
-        <li>Deduplication logic</li>
-        <li>@dlt.expect() quality rules</li>
-        <li>Null handling & filters</li>
-      </ul>
-    </div>
-    <div class="stg-sep">→</div>
-    <div class="stg s-gd">
-      <div class="stg-t">🥇 Gold Layer</div>
-      <div style="color:#94a3b8;font-size:9px;margin-bottom:4px">Business Aggregates</div>
-      <ul>
-        <li>@dlt.table (materialized view)</li>
-        <li>Multi-table joins</li>
-        <li>Business KPI aggregations</li>
-        <li>CTAS / SQL SELECT patterns</li>
-        <li>Slowly Changing Dimensions</li>
-        <li>Serving-layer optimized</li>
-      </ul>
-    </div>
-  </div>
+<span class="badge b-amber">Batch SQL</span>
 
-  <hr class="divider">
+<ul>
+<li>Idempotent ingestion</li>
+<li>Tracks loaded files</li>
+<li>Works with SQL Warehouses</li>
+<li>CSV / JSON / Parquet</li>
+<li>Simple periodic loads</li>
+<li>No checkpoint management</li>
+</ul>
 
-  <div class="grid3">
-    <div class="card c-cyan">
-      <div class="card-title">🛡️ Data Quality Controls</div>
-      <ul>
-        <li><code>@dlt.expect("name", condition)</code></li>
-        <li><code>expect_or_drop</code> — filter invalid rows</li>
-        <li><code>expect_or_fail</code> — halt on violation</li>
-        <li>Quarantine table pattern</li>
-        <li>Quality metrics in Event Log</li>
-        <li>system.event_log table queries</li>
-      </ul>
-    </div>
-    <div class="card c-cyan">
-      <div class="card-title">🔁 CDC — apply_changes()</div>
-      <ul>
-        <li><code>APPLY CHANGES INTO target</code></li>
-        <li><code>FROM source KEYS (pk_col)</code></li>
-        <li><code>SEQUENCE BY event_timestamp</code></li>
-        <li>SCD Type 1 — upsert (default)</li>
-        <li>SCD Type 2 — history rows</li>
-        <li>STORED AS {SCD_TYPE_2} syntax</li>
-      </ul>
-    </div>
-    <div class="card c-cyan">
-      <div class="card-title">⚙️ Pipeline Execution Modes</div>
-      <ul>
-        <li>Triggered — runs once, stops</li>
-        <li>Continuous — always-on stream</li>
-        <li>Development mode (no auto-restart)</li>
-        <li>Enhanced Autoscaling (DLT-managed)</li>
-        <li>Serverless DLT (no cluster config)</li>
-        <li>Unity Catalog pipeline isolation</li>
-      </ul>
-    </div>
-  </div>
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">Compute plane — Spark execution engine</span></div>
+<div class="card c-purple">
 
-<!-- ── CLUSTERS ── -->
+<div class="card-title">🌊 Structured Streaming</div>
+
+<span class="badge b-cyan">Real-time</span>
+
+<ul>
+<li>readStream / writeStream</li>
+<li>Kafka / EventHub ingestion</li>
+<li>Watermarking support</li>
+<li>foreachBatch processing</li>
+<li>Stateful aggregations</li>
+<li>Streaming checkpoints</li>
+</ul>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Bronze Delta tables registered in Unity Catalog</span>
+</div>
+
+<!-- PIPELINES -->
+
+<div class="layer layer-pipe">
+
+<span class="layer-label">
+⚡ Lakeflow Declarative Pipelines (formerly DLT)
+</span>
+
+<div class="stages">
+
+<div class="stg s-bz">
+
+<div class="stg-t">🥉 Bronze</div>
+
+<ul>
+<li>Raw append-only ingestion</li>
+<li>Minimal transformations</li>
+<li>Audit trail retention</li>
+<li>Streaming sources</li>
+<li>_rescued_data support</li>
+</ul>
+
+</div>
+
+<div class="stg s-sv">
+
+<div class="stg-t">🥈 Silver</div>
+
+<ul>
+<li>Deduplication</li>
+<li>Type casting</li>
+<li>CDC merge logic</li>
+<li>Data quality rules</li>
+<li>Conformed datasets</li>
+</ul>
+
+</div>
+
+<div class="stg s-gd">
+
+<div class="stg-t">🥇 Gold</div>
+
+<ul>
+<li>Business KPIs</li>
+<li>Aggregated models</li>
+<li>Serving layer tables</li>
+<li>Star schemas</li>
+<li>Analytics-ready data</li>
+</ul>
+
+</div>
+
+</div>
+
+<hr class="divider">
+
+<div class="grid3">
+
+<div class="card c-cyan">
+
+<div class="card-title">🛡️ Data Quality</div>
+
+<ul>
+<li>@dlt.expect()</li>
+<li>expect_or_drop</li>
+<li>expect_or_fail</li>
+<li>Quality metrics</li>
+<li>Pipeline event logs</li>
+<li>Quarantine patterns</li>
+</ul>
+
+</div>
+
+<div class="card c-cyan">
+
+<div class="card-title">🔁 CDC Processing</div>
+
+<ul>
+<li>apply_changes()</li>
+<li>SCD Type 1</li>
+<li>SCD Type 2</li>
+<li>MERGE semantics</li>
+<li>Sequence ordering</li>
+<li>CDC upserts</li>
+</ul>
+
+</div>
+
+<div class="card c-cyan">
+
+<div class="card-title">⚙️ Pipeline Execution</div>
+
+<ul>
+<li>Triggered mode</li>
+<li>Continuous mode</li>
+<li>Serverless pipelines</li>
+<li>Autoscaling compute</li>
+<li>Pipeline isolation</li>
+<li>Managed orchestration</li>
+</ul>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Spark compute execution</span>
+</div>
+
+<!-- COMPUTE -->
+
 <div class="layer layer-clus">
-  <span class="layer-label">🖥️ Cluster Layer — Compute Types & Configuration</span>
-  <div class="grid4">
 
-    <div class="card c-amber">
-      <div class="card-title">⚙️ All-Purpose Cluster</div>
-      <span class="badge b-amber">Interactive</span>
-      <ul>
-        <li>Multi-user shared compute</li>
-        <li>Notebooks & ad-hoc SQL</li>
-        <li>Manual start/stop control</li>
-        <li>Auto-termination on idle</li>
-        <li>Persistent across jobs</li>
-        <li>Standard / Premium tiers</li>
-        <li>Autoscaling: min→max workers</li>
-        <li>High cost if left running</li>
-      </ul>
-    </div>
+<span class="layer-label">
+🖥️ Databricks Compute Layer
+</span>
 
-    <div class="card c-amber">
-      <div class="card-title">🏭 Job Cluster</div>
-      <span class="badge b-green">Ephemeral</span>
-      <ul>
-        <li>Spun up per job run only</li>
-        <li>Terminated on completion</li>
-        <li>No idle cost — most efficient</li>
-        <li>Defined in Job JSON config</li>
-        <li>new_cluster per task option</li>
-        <li>Spot + On-demand mix</li>
-        <li>Spot fallback policy config</li>
-        <li>Instance pools for fast start</li>
-      </ul>
-    </div>
+<div class="grid4">
 
-    <div class="card c-amber">
-      <div class="card-title">⚡ Serverless Compute</div>
-      <span class="badge b-cyan">Managed</span>
-      <ul>
-        <li>No cluster config required</li>
-        <li>~2s cold start time</li>
-        <li>Databricks-managed VPC</li>
-        <li>SQL Warehouses (BI queries)</li>
-        <li>Serverless Jobs compute</li>
-        <li>Serverless DLT pipelines</li>
-        <li>Per-second billing granularity</li>
-        <li>No Spark UI (limited debug)</li>
-      </ul>
-    </div>
+<div class="card c-amber">
 
-    <div class="card c-amber">
-      <div class="card-title">🌊 DLT Pipeline Cluster</div>
-      <span class="badge b-purple">Auto-managed</span>
-      <ul>
-        <li>Auto-provisioned by DLT engine</li>
-        <li>Enhanced autoscaling (DLT-specific)</li>
-        <li>Driver + Worker node split</li>
-        <li>One cluster per pipeline</li>
-        <li>Restart on failure policy</li>
-        <li>Custom spark.conf allowed</li>
-        <li>Cannot be used for other tasks</li>
-        <li>Photon optional on DLT</li>
-      </ul>
-    </div>
+<div class="card-title">⚙️ All-Purpose</div>
 
-  </div>
+<ul>
+<li>Interactive notebooks</li>
+<li>Shared compute</li>
+<li>Autoscaling support</li>
+<li>Ad-hoc analysis</li>
+<li>Persistent clusters</li>
+</ul>
 
-  <hr class="divider">
-
-  <div class="grid3">
-    <div class="card c-amber">
-      <div class="card-title">🔧 Node & Runtime Config</div>
-      <ul>
-        <li>Driver: DAG coordination, result collection</li>
-        <li>Worker nodes: parallel task execution</li>
-        <li>Memory-optimized (r-family AWS / E-series Azure)</li>
-        <li>Compute-optimized (c-family / F-series)</li>
-        <li>GPU instances for ML workloads</li>
-        <li>Photon Engine: vectorized C++ execution</li>
-        <li>Delta Cache: SSD-cached Parquet on workers</li>
-        <li>DBR version pinning (14.x, 15.x, etc.)</li>
-      </ul>
-    </div>
-    <div class="card c-amber">
-      <div class="card-title">📈 Autoscaling & Policies</div>
-      <ul>
-        <li>Standard autoscaling — queue-based</li>
-        <li>Enhanced autoscaling — predictive scale-down</li>
-        <li>Cluster policies — enforce org-wide configs</li>
-        <li>Instance pools — pre-warmed idle VMs</li>
-        <li>Auto-termination: idle timeout (minutes)</li>
-        <li>Init scripts — custom env on node boot</li>
-        <li>Libraries: PyPI, Maven, DBFS wheel</li>
-        <li>Spot instance bid strategy config</li>
-      </ul>
-    </div>
-    <div class="card c-amber">
-      <div class="card-title">🔐 Access & Security</div>
-      <ul>
-        <li>Single-user mode (UC enforced)</li>
-        <li>Shared mode (multi-user isolation)</li>
-        <li>No isolation shared (legacy)</li>
-        <li>DBR ML — MLflow, scikit-learn, TF</li>
-        <li>Unity Catalog data access control</li>
-        <li>Credential passthrough (legacy AAD)</li>
-        <li>Network security groups / private link</li>
-        <li>Cluster-scoped env variables for secrets</li>
-      </ul>
-    </div>
-  </div>
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">Orchestration layer — workflow scheduling</span></div>
+<div class="card c-amber">
 
-<!-- ── JOBS ── -->
+<div class="card-title">🏭 Job Clusters</div>
+
+<ul>
+<li>Ephemeral compute</li>
+<li>Per-job execution</li>
+<li>Lower operational cost</li>
+<li>Task isolation</li>
+<li>Instance pools</li>
+</ul>
+
+</div>
+
+<div class="card c-amber">
+
+<div class="card-title">⚡ Serverless</div>
+
+<ul>
+<li>No cluster management</li>
+<li>Fast startup time</li>
+<li>Managed infrastructure</li>
+<li>Per-second billing</li>
+<li>SQL Warehouses</li>
+</ul>
+
+</div>
+
+<div class="card c-amber">
+
+<div class="card-title">🌊 Pipeline Compute</div>
+
+<ul>
+<li>Managed by pipeline engine</li>
+<li>Enhanced autoscaling</li>
+<li>Auto recovery</li>
+<li>Photon support</li>
+<li>Pipeline isolation</li>
+</ul>
+
+</div>
+
+</div>
+
+<hr class="divider">
+
+<div class="grid3">
+
+<div class="card c-amber">
+
+<div class="card-title">⚡ Spark & Photon</div>
+
+<ul>
+<li>Distributed Spark engine</li>
+<li>Driver & worker architecture</li>
+<li>Photon vectorized execution</li>
+<li>Accelerated SQL/DataFrames</li>
+<li>Delta cache support</li>
+<li>DBR runtime versions</li>
+</ul>
+
+</div>
+
+<div class="card c-amber">
+
+<div class="card-title">📈 Scaling</div>
+
+<ul>
+<li>Autoscaling clusters</li>
+<li>Cluster policies</li>
+<li>Instance pools</li>
+<li>Spot instances</li>
+<li>Auto termination</li>
+<li>Custom init scripts</li>
+</ul>
+
+</div>
+
+<div class="card c-amber">
+
+<div class="card-title">🔐 Security</div>
+
+<ul>
+<li>Unity Catalog enforcement</li>
+<li>Single-user isolation</li>
+<li>Shared access mode</li>
+<li>Private networking</li>
+<li>Secrets integration</li>
+<li>Identity federation</li>
+</ul>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Workflow orchestration</span>
+</div>
+
+<!-- JOBS -->
+
 <div class="layer layer-jobs">
-  <span class="layer-label">🔄 Databricks Jobs — Workflow Orchestration</span>
 
-  <div class="grid2">
-    <div>
-      <div class="sec-title">Task Types (DAG nodes)</div>
-      <div class="tasks-row">
-        <div class="task">📓 Notebook</div><div class="task-arr">→</div>
-        <div class="task">🐍 Python Script</div><div class="task-arr">→</div>
-        <div class="task">📦 Python Wheel</div><div class="task-arr">→</div>
-        <div class="task">☕ JAR Task</div><div class="task-arr">→</div>
-        <div class="task">⚡ DLT Pipeline</div><div class="task-arr">→</div>
-        <div class="task">🗄️ SQL Query</div><div class="task-arr">→</div>
-        <div class="task">🔁 dbt Task</div><div class="task-arr">→</div>
-        <div class="task">🌐 HTTP Webhook</div><div class="task-arr">→</div>
-        <div class="task">🔂 For Each Loop</div><div class="task-arr">→</div>
-        <div class="task">📊 Spark Submit</div>
-      </div>
-    </div>
-    <div>
-      <div class="sec-title">Trigger Modes</div>
-      <div class="cards-row">
-        <div class="card c-green" style="flex:1">
-          <div class="card-title">⏰ Scheduled</div>
-          <ul><li>Cron expression</li><li>Quartz syntax</li><li>Timezone-aware</li><li>Overlap policy</li></ul>
-        </div>
-        <div class="card c-green" style="flex:1">
-          <div class="card-title">📁 File Arrival</div>
-          <ul><li>S3 / ADLS trigger</li><li>Event-based start</li><li>Debounce config</li><li>Glob path filter</li></ul>
-        </div>
-        <div class="card c-green" style="flex:1">
-          <div class="card-title">🔗 API / Event</div>
-          <ul><li>REST run_now API</li><li>CI/CD pipeline call</li><li>Continuous trigger</li><li>Webhook events</li></ul>
-        </div>
-      </div>
-    </div>
-  </div>
+<span class="layer-label">
+🔄 Databricks Jobs & Workflows
+</span>
 
-  <hr class="divider">
+<div class="grid3">
 
-  <div class="grid3">
-    <div class="card c-green">
-      <div class="card-title">🔗 Task Dependencies & Flow</div>
-      <ul>
-        <li>DAG-based directed task graph</li>
-        <li><code>depends_on</code> per task config</li>
-        <li>Run if / conditional branching logic</li>
-        <li>Parallel task fan-out execution</li>
-        <li>TaskValues API — pass data between tasks</li>
-        <li>Repair & re-run from failed task</li>
-        <li>Matrix tasks (dynamic parallelism)</li>
-        <li>For Each task with concurrency limit</li>
-      </ul>
-    </div>
-    <div class="card c-green">
-      <div class="card-title">📊 Monitoring & Observability</div>
-      <ul>
-        <li>Run history with duration metrics</li>
-        <li>Email / webhook on success/failure</li>
-        <li>Slack / PagerDuty / Teams integration</li>
-        <li>Ganglia metrics UI per cluster</li>
-        <li>Spark UI: stages, tasks, DAG viz</li>
-        <li><code>system.lakeflow.jobs</code> system table</li>
-        <li>system.lakeflow.job_run_timeline</li>
-        <li>Cost per run via DBU tracking</li>
-      </ul>
-    </div>
-    <div class="card c-green">
-      <div class="card-title">♻️ Reliability & Retry</div>
-      <ul>
-        <li>Max retries per task (0–10)</li>
-        <li>Retry on timeout configuration</li>
-        <li>Max concurrent runs cap</li>
-        <li>Job cluster fresh per run</li>
-        <li>Idempotent task design patterns</li>
-        <li>Checkpointing in streaming tasks</li>
-        <li>Alert on duration > threshold</li>
-        <li>SLA-based alerting hooks</li>
-      </ul>
-    </div>
-  </div>
+<div class="card c-green">
+
+<div class="card-title">📦 Task Types</div>
+
+<ul>
+<li>Notebook tasks</li>
+<li>Python scripts</li>
+<li>Python wheel jobs</li>
+<li>JAR tasks</li>
+<li>SQL tasks</li>
+<li>dbt tasks</li>
+</ul>
+
 </div>
 
-<div class="arrow-row"><div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div><span class="arrow-label">Persisted outputs → Delta tables in Unity Catalog</span></div>
+<div class="card c-green">
 
-<!-- ── STORAGE & SERVING ── -->
+<div class="card-title">⏰ Scheduling</div>
+
+<ul>
+<li>Cron scheduling</li>
+<li>File arrival triggers</li>
+<li>REST API execution</li>
+<li>Webhook triggers</li>
+<li>Parallel execution</li>
+<li>DAG dependencies</li>
+</ul>
+
+</div>
+
+<div class="card c-green">
+
+<div class="card-title">📊 Monitoring</div>
+
+<ul>
+<li>Run history</li>
+<li>Spark UI</li>
+<li>System tables</li>
+<li>Query profiles</li>
+<li>Email/webhook alerts</li>
+<li>DBU usage tracking</li>
+</ul>
+
+</div>
+
+</div>
+
+<p class="note">
+↳ Jobs orchestrate notebooks, pipelines, SQL, scripts, and workflows but do not store data themselves.
+</p>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Delta Lake tables stored on cloud object storage</span>
+</div>
+
+<!-- CLOUD STORAGE -->
+
 <div class="layer layer-store">
-  <span class="layer-label">🏛️ Lakehouse Storage, Governance & Serving</span>
-  <div class="cards-row">
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">🔺 Delta Lake</div>
-      <ul>
-        <li>ACID transactions (optimistic CC)</li>
-        <li>Time travel: RESTORE / VERSION AS OF</li>
-        <li>Z-ORDER clustering by column</li>
-        <li>OPTIMIZE — compact small files</li>
-        <li>VACUUM — remove old file versions</li>
-        <li>Change Data Feed (CDF)</li>
-        <li>Deletion vectors (soft deletes)</li>
-        <li>Liquid clustering (auto layout)</li>
-      </ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">📚 Unity Catalog</div>
-      <ul>
-        <li>3-level namespace: catalog.schema.table</li>
-        <li>Column-level security & masking</li>
-        <li>Row-level filters</li>
-        <li>Automated data lineage graph</li>
-        <li>Cross-workspace & account sharing</li>
-        <li>Volumes for unstructured files</li>
-        <li>External locations management</li>
-        <li>Delta Sharing (open protocol)</li>
-      </ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">🔍 SQL Warehouse / Serving</div>
-      <ul>
-        <li>Serverless SQL Warehouse (BI)</li>
-        <li>ODBC / JDBC endpoints</li>
-        <li>Photon-accelerated queries</li>
-        <li>Result caching layer</li>
-        <li>Partner Connect (Tableau, Power BI)</li>
-        <li>Genie — AI/BI natural language</li>
-        <li>Dashboard publishing</li>
-        <li>Alerts on query results</li>
-      </ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">🤖 AI & ML Platform</div>
-      <ul>
-        <li>Feature Store (online + offline)</li>
-        <li>MLflow: experiment tracking</li>
-        <li>Model Registry & versioning</li>
-        <li>Model Serving (REST endpoints)</li>
-        <li>Vector Search (embeddings index)</li>
-        <li>AI Playground (LLM testing)</li>
-        <li>Foundation Model APIs</li>
-        <li>Mosaic AI Agent Framework</li>
-      </ul>
-    </div>
-    <div class="card c-slate" style="flex:1">
-      <div class="card-title">📤 Downstream Consumers</div>
-      <ul>
-        <li>Power BI / Tableau / Looker</li>
-        <li>Apache Superset / Metabase</li>
-        <li>Reverse ETL: Census / Hightouch</li>
-        <li>External via Delta Sharing</li>
-        <li>Kafka sink / Pub/Sub egress</li>
-        <li>REST API data export</li>
-        <li>Databricks Apps (Streamlit)</li>
-        <li>Partner BI tools via Partner Connect</li>
-      </ul>
-    </div>
-  </div>
+
+<span class="layer-label">
+☁️ Cloud Object Storage
+</span>
+
+<div class="grid3">
+
+<div class="card c-slate">
+
+<div class="card-title">🪣 AWS S3</div>
+
+<ul>
+<li>Stores Delta & Parquet files</li>
+<li>Highly durable storage</li>
+<li>External tables support</li>
+<li>Scalable object storage</li>
+</ul>
+
 </div>
 
-<div style="text-align:center;margin-top:20px;font-size:10px;color:#334155;letter-spacing:1px">
-  DATABRICKS UNIFIED DATA INTELLIGENCE PLATFORM · LAKEFLOW → DLT → JOBS · LOW-LEVEL ARCHITECTURE
+<div class="card c-slate">
+
+<div class="card-title">📦 Azure ADLS Gen2</div>
+
+<ul>
+<li>Hierarchical namespace</li>
+<li>Analytics-optimized</li>
+<li>Unity Catalog integration</li>
+<li>External locations support</li>
+</ul>
+
+</div>
+
+<div class="card c-slate">
+
+<div class="card-title">🌍 Google Cloud Storage</div>
+
+<ul>
+<li>Object-based storage</li>
+<li>Delta transaction logs</li>
+<li>Multi-region availability</li>
+<li>GCP-native lakehouse storage</li>
+</ul>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="arrow-row">
+<div class="arrow-down">
+<div class="arrow-line"></div>
+<div class="arrow-head"></div>
+</div>
+<span class="arrow-label">Governance & serving layer</span>
+</div>
+
+<!-- STORAGE -->
+
+<div class="layer layer-store">
+
+<span class="layer-label">
+🏛️ Delta Lake, Governance & Consumption
+</span>
+
+<div class="grid4">
+
+<div class="card c-slate">
+
+<div class="card-title">🔺 Delta Lake</div>
+
+<ul>
+<li>Delta Lake = Parquet + _delta_log</li>
+<li>ACID transactions</li>
+<li>Time travel</li>
+<li>OPTIMIZE & VACUUM</li>
+<li>Change Data Feed</li>
+<li>Liquid clustering</li>
+</ul>
+
+</div>
+
+<div class="card c-slate">
+
+<div class="card-title">📚 Unity Catalog</div>
+
+<ul>
+<li>catalog.schema.table model</li>
+<li>Central governance layer</li>
+<li>Row/column security</li>
+<li>Lineage tracking</li>
+<li>External locations</li>
+<li>Delta Sharing</li>
+</ul>
+
+</div>
+
+<div class="card c-slate">
+
+<div class="card-title">🔍 SQL & BI</div>
+
+<ul>
+<li>SQL Warehouses</li>
+<li>Photon acceleration</li>
+<li>Power BI / Tableau</li>
+<li>ODBC / JDBC</li>
+<li>Dashboards & alerts</li>
+<li>Genie AI/BI</li>
+</ul>
+
+</div>
+
+<div class="card c-slate">
+
+<div class="card-title">🤖 AI & ML</div>
+
+<ul>
+<li>MLflow tracking</li>
+<li>Feature Store</li>
+<li>Model Serving</li>
+<li>Vector Search</li>
+<li>Mosaic AI</li>
+<li>Foundation Model APIs</li>
+</ul>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="footer">
+DATABRICKS LAKEHOUSE PLATFORM · LAKEFLOW · DELTA LAKE · UNITY CATALOG
 </div>
 
 </body>
